@@ -1,0 +1,83 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Random Exchange Network</title>
+    <script type="text/javascript" src="./assetmanager.js"></script>
+    <script type="text/javascript" src="./timer.js"></script>
+    <script type="text/javascript" src="./gameengine.js"></script>
+    <script type="text/javascript" src="./util.js"></script>
+    <script type="text/javascript" src="./parameters.js"></script>
+    <script type="text/javascript" src="./graph.js"></script>
+    <script type="text/javascript" src="./histogram.js"></script>
+    <script type="text/javascript" src="./datamanager.js"></script>
+    <script type="text/javascript" src="./population.js"></script>
+    <script type="text/javascript" src="./populationobserver.js"></script>
+    <script type="text/javascript" src="./agent.js"></script>
+    <script type="text/javascript" src="./main.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="mainLayout">
+        <canvas id="gameWorld" width="2000" height="1000" style="background: white; border: 1px solid black"
+            tabindex="0" autofocus></canvas>
+        <div id="ui">
+            <div id="initial">
+                <label for="numAgents">Number of Agents:</label>
+                <input type="number" id="numAgents" value="100" min="10" max="1000"><br>
+
+                <label for="initialWealth">Initial Wealth:</label>
+                <input type="number" id="initialWealth" value="100" min="1" max="10000"><br>
+
+                <label for="numEmployers">Number of Employers:</label>
+                <input type="number" id="numEmployers" value="5" min="0" max="100"><br>
+
+                <label for="numEmployees">Number of Employees:</label>
+                <input type="number" id="numEmployees" value="5" min="0" max="100"><br>
+            </div>
+            <div id="parameters">
+                <label for="giveRate">Proportion of Wealth Given in Exchange:</label>
+                <input type="number" id="giveRate" value="0.5" step="0.05" min="0" max="1"><br>
+
+                <label for="yardSale">Payment proportional to poorest agent:</label>
+                <input type="checkbox" id="yardSale"><br>
+
+                <label for="employeeNetwork">Use Employee Network:</label>
+                <input type="checkbox" id="employeeNetwork"><br>
+
+                <label for="changeEmployeeOnPayment">Swap out rich employees:</label>
+                <input type="checkbox" id="changeEmployeeOnPayment"><br>
+
+
+                <label for="employerNetwork">Use Employer Network:</label>
+                <input type="checkbox" id="employerNetwork"><br>
+
+                <label for="changeEmployersOnEarnings">Swap out poor employers:</label>
+                <input type="checkbox" id="changeEmployersOnEarnings"><br>
+
+
+                <label for="earnChance">Chance to participate as employee (0-1):</label>
+                <input type="number" id="earnChance" value="1.0" step="0.01" min="0" max="1"><br>
+
+                <label for="spendChance">Chance to participate as employer (0-1):</label>
+                <input type="number" id="spendChance" value="1.0" step="0.01" min="0" max="1"><br>
+
+                <label for="randomTrades">Number of Random Trades:</label>
+                <input type="number" id="randomTrades" value="1" min="0" max="100"><br>
+
+                <label for="nullAgents">Replace Wealth Zero with Null Agents:</label>
+                <input type="checkbox" id="nullAgents"><br>
+
+                <label for="deadAgents">Remove Dead Agents:</label>
+                <input type="checkbox" id="deadAgents"><br>
+            </div>
+            <div id="controls">
+                <button id="resetButton">Reset</button>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
