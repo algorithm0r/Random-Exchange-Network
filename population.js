@@ -35,7 +35,8 @@ class Population {
             }
         }
         this.executeRandomTrades(PARAMETERS.randomTrades);
-        this.dataManager.update();
+        if(this.dataManager.update())
+            loadNextRunParameters();
     }
 
     draw(ctx) {

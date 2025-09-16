@@ -12,6 +12,9 @@ class PopulationObserver {
 
         const wealthHistogram = this.dataManager.wealthDistribution;
         this.wealthHistogram = new Histogram(1000, 230, wealthHistogram, {label: "Wealth", width: 1000, height: 100});
+
+        const giniData = [this.dataManager.giniTimeSeries];
+        this.giniGraph = new Graph(1000, 345, 1000, 100, giniData, "Gini Coefficient", 0, 1, false);
     }
 
     update() {
@@ -31,7 +34,7 @@ class PopulationObserver {
                 const y = centerY + radius * Math.sin(angle);
                 ctx.fillStyle = 'blue';
                 ctx.beginPath();
-                const rad = 1 + Math.log(agent.wealth + 1);
+                const rad = 1 + Math.log(agent.wealth + 1)/Math.log(2);
                 ctx.arc(x, y, rad, 0, 2 * Math.PI);
                 ctx.fill();
 
@@ -96,5 +99,6 @@ class PopulationObserver {
         this.populationGraph.draw(ctx);
         this.wealthGraph.draw(ctx);
         this.wealthHistogram.draw(ctx);
+        this.giniGraph.draw(ctx);
     }
 }

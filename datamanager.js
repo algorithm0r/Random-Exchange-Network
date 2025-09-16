@@ -16,6 +16,7 @@ class DataManager {
 		
 		// wealth distribution
 		this.wealthDistribution = [];
+		this.giniTimeSeries = [];
 
 		this.averageWealth = 0;
 		this.totalWealth = 0;
@@ -26,11 +27,23 @@ class DataManager {
 		this.numLowerClass = 0;
 		this.numNullAgents = 0;
 		this.tick = 0;
+		this.gini = 0;
 		this.reportingPeriod = PARAMETERS.reportingPeriod;
 	}
+
+	calculateGini(wealths) {
+		const sorted = [...wealths].sort((a, b) => a - b);
+		const n = sorted.length;
+		const totalWealth = sorted.reduce((sum, w) => sum + w, 0);
+
+		const numerator = 2 * sorted.reduce((sum, w, i) => sum + (i + 1) * w, 0) - (n + 1) * totalWealth;
+		const denominator = n * totalWealth;
+
+		return numerator / denominator;
+	}
+
 	update() {
-		this.tick++;
-		if (this.tick % this.reportingPeriod === 0) {
+		if (this.tick++ % this.reportingPeriod === 0) {
 			this.numAgents = this.agents.filter(a => a !== null).length;
 			this.populationTimeSeries.push(this.numAgents);
 			this.numNullAgents = this.agents.length - this.numAgents;
@@ -42,6 +55,10 @@ class DataManager {
 			this.upperClassTimeSeries.push(this.numUpperClass);
 			this.lowerClassTimeSeries.push(this.numLowerClass);
 
+			const agentWealths = this.agents.filter(a => a !== null).map(a => a.wealth);
+			this.gini = this.calculateGini(agentWealths);
+			this.giniTimeSeries.push(this.gini);
+
 			this.totalWealth = this.agents.reduce((sum, agent) => sum + (agent ? agent.wealth : 0), 0);
 			this.maxWealth = this.agents.reduce((max, agent) => agent ? Math.max(max, agent.wealth) : max, 0);
 			this.minWealth = this.agents.reduce((min, agent) => agent ? Math.min(min, agent.wealth) : min, Infinity);
@@ -49,7 +66,6 @@ class DataManager {
 			this.maxWealthTimeSeries.push(this.maxWealth);
 			this.minWealthTimeSeries.push(this.minWealth === Infinity ? 0 : this.minWealth);
 
-			const agentWealths = this.agents.filter(a => a !== null).map(a => a.wealth);
 			const counts = [];
 			for(let i = 0; i < 20; i++) {
 				counts.push(0);
@@ -61,8 +77,40 @@ class DataManager {
 				counts[index]++
 			});
 			this.wealthDistribution.push(counts);
+			if (this.tick >= PARAMETERS.epoch || this.maxWealth === this.totalWealth) {
+				this.sendDataToServer();
+				return true;
+			}
 		}
+		return false;
 	}
+
+	sendDataToServer() {
+		console.log("Sending data to server...");
+
+		const packet = {
+			db: PARAMETERS.db,
+			collection: PARAMETERS.collection,
+			data: {
+				run: PARAMETERS.runName,
+				parameters: PARAMETERS,
+				population: this.populationTimeSeries,
+				nullPopulation: this.nullPopulationTimeSeries,
+				upperClass: this.upperClassTimeSeries,
+				lowerClass: this.lowerClassTimeSeries,
+				maxWealth: this.maxWealthTimeSeries,
+				minWealth: this.minWealthTimeSeries,
+				averageWealth: this.averageWealthTimeSeries,
+				wealthDistribution: this.wealthDistribution,
+				gini: this.giniTimeSeries
+			},
+		};
+
+		socket.emit("insert", packet);
+		console.log(packet);
+		console.log("Data sent.");
+	}
+
 
 	draw(ctx) {
 	}
