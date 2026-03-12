@@ -26,7 +26,7 @@ const PARAMETERS = {
     idCounter: 0,
 
     db: "random_exchange",
-    collection: "batch_001",
+    collection: "batch_002",
     reportingPeriod: 10,
     epoch: 10000,
     ip:'https://73.19.38.112:8888',    

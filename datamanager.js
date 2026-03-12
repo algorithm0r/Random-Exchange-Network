@@ -71,7 +71,7 @@ class DataManager {
 				counts.push(0);
 			}
 			counts[0] += this.numNullAgents;
-			const bucketSize = this.averageWealth / 5;
+			const bucketSize = PARAMETERS.initialWealth / 5;
 			agentWealths.forEach(wealth => {
 				let index = Math.min(19,Math.floor(wealth / bucketSize));
 				counts[index]++

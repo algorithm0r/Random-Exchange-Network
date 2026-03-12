@@ -13,6 +13,10 @@ var query;
 var filter;
 var obj;
 
+// Bulk download state
+var bulkQueue   = [];   // run names waiting to be processed
+var bulkRunning = false;
+
 socket.on("connect", function () {
     databaseConnected();
 });
@@ -73,10 +77,59 @@ document.addEventListener("DOMContentLoaded", function (event) {
         console.log("Download clicked.");
         console.log(obj);
         if (obj.run) {
-
+            download(`${obj.run}.csv`, serializeGraph([obj.avgPopulation, obj.avgUpperClass, obj.avgLowerClass, obj.avgNullPopulation, obj.avgGini, obj.avgAverageWealth, obj.avgMaxWealth, obj.avgMinWealth, obj.survivalRate]));
+            download(`${obj.run}_wealth_distribution.csv`, serializeHist(combineHistograms(data, "wealthDistribution")));
         }
     }, false);
+
+    document.getElementById("download_all").addEventListener("click", function (e) {
+        if (bulkRunning) {
+            // Cancel
+            bulkQueue   = [];
+            bulkRunning = false;
+            document.getElementById("download_all").textContent = "Download All";
+            document.getElementById("query_info").innerHTML = "Bulk download cancelled.";
+            return;
+        }
+        // Build queue from every option in the dropdown
+        const selector = document.getElementById("run_selection");
+        bulkQueue = Array.from(selector.options).map(o => o.value).filter(v => v);
+        if (bulkQueue.length === 0) {
+            document.getElementById("query_info").innerHTML = "No runs in dropdown yet.";
+            return;
+        }
+        bulkRunning = true;
+        document.getElementById("download_all").textContent = "Cancel Bulk DL";
+        console.log(`Bulk download: ${bulkQueue.length} runs queued.`);
+        bulkAdvance();
+    }, false);
 });
+
+function bulkAdvance() {
+    if (!bulkRunning || bulkQueue.length === 0) {
+        bulkRunning = false;
+        document.getElementById("download_all").textContent = "Download All";
+        document.getElementById("query_info").innerHTML = "Bulk download complete.";
+        return;
+    }
+    query  = bulkQueue.shift();
+    filter = null;
+    const remaining = bulkQueue.length;
+    document.getElementById("query_info").innerHTML =
+        `Bulk: fetching ${query} — ${remaining} remaining…`;
+    // Select the matching option in the dropdown (cosmetic)
+    const selector = document.getElementById("run_selection");
+    for (let i = 0; i < selector.options.length; i++) {
+        if (selector.options[i].value === query) { selector.selectedIndex = i; break; }
+    }
+    page = 0;
+    data = [];
+    socket.emit("count", {
+        db:         PARAMETERS.db,
+        collection: PARAMETERS.collection,
+        query:      { "run": query },
+    });
+}
 
 socket.on("count", function (length) {
     numRecords = length;
@@ -106,16 +159,28 @@ socket.on("find", function (array) {
 
         parseData(data);
 
-        if(data.length < numRecords) socket.emit("find",
-            {
-                db: PARAMETERS.db,
+        if(data.length < numRecords) {
+            socket.emit("find", {
+                db:         PARAMETERS.db,
                 collection: PARAMETERS.collection,
-                query: { run: query },
-                filter: filter,
-                limit: limit,
-                page: ++page
+                query:      { run: query },
+                filter:     filter,
+                limit:      limit,
+                page:       ++page
             });
-        console.log(`Requesting page ${page} of size ${limit}.`);
+            console.log(`Requesting page ${page} of size ${limit}.`);
+        } else if (bulkRunning && obj && obj.run) {
+            // Run fully loaded — download its two files then move to next
+            download(`${obj.run}.csv`, serializeGraph([
+                obj.avgPopulation, obj.avgUpperClass, obj.avgLowerClass,
+                obj.avgNullPopulation, obj.avgGini, obj.avgAverageWealth,
+                obj.avgMaxWealth, obj.avgMinWealth, obj.survivalRate
+            ]));
+            download(`${obj.run}_wealth_distribution.csv`,
+                serializeHist(combineHistograms(data, "wealthDistribution")));
+            // Small delay so the browser has time to queue the file before next fetch
+            setTimeout(bulkAdvance, 300);
+        }
 
     }
     else console.log("Empty data.");
@@ -148,17 +213,14 @@ function serializeGraph(timeSeriesList) {
     }
 
     const numSeries = timeSeriesList.length;
-    const numDataPoints = timeSeriesList[0].length;
     let csvString = "";
-    // for (let dataIndex = 0; dataIndex < numDataPoints; dataIndex++) {
-    //     for (let seriesIndex = 0; seriesIndex < numSeries; seriesIndex++) {
     for (let seriesIndex = 0; seriesIndex < numSeries; seriesIndex++) {
-        for (let dataIndex = 0; dataIndex < numDataPoints; dataIndex++) {
-
-            csvString += timeSeriesList[seriesIndex][dataIndex];
-            if (seriesIndex < numDataPoints - 1) {
-                csvString += ",";
-            }
+        const seriesLength = timeSeriesList[seriesIndex].length;
+        for (let dataIndex = 0; dataIndex < seriesLength; dataIndex++) {
+            // null entries (Gini after all runs collapsed) written as empty string
+            const val = timeSeriesList[seriesIndex][dataIndex];
+            csvString += (val === null || val === undefined) ? "" : val;
+            if (dataIndex < seriesLength - 1) csvString += ",";
         }
         csvString += "\n";
     }
@@ -206,7 +268,8 @@ function parseData(data) {
     let avgAverageWealth = [];
     let avgMaxWealth = [];
     let avgMinWealth = [];
-    for(let j =0; j < ticks; j++) {
+    let survivalRate = [];   // fraction of runs still alive at each tick
+    for(let j = 0; j < ticks; j++) {
         avgPopulation.push(0);
         totalPopulation.push(0);
         avgUpperClass.push(0);
@@ -216,32 +279,78 @@ function parseData(data) {
         avgAverageWealth.push(0);
         avgMaxWealth.push(0);
         avgMinWealth.push(0);
+        survivalRate.push(0);
     }
 
     let runs = data.length;
 
-    for(let i =0; i < runs; i++) {
-        for(let j =0; j < ticks; j++) {
+    // LOCF: extend all fields except gini to full epoch length.
+    // Gini is NOT extended — computed as survivor-conditional mean instead.
+    for(let i = 0; i < runs; i++) {
+        const fields = [
+            'population', 'upperClass', 'lowerClass', 'nullPopulation',
+            'averageWealth', 'maxWealth', 'minWealth'
+        ];
+        for(const field of fields) {
+            const arr = data[i][field];
+            const lastVal = arr.length > 0 ? arr[arr.length - 1] : 0;
+            while(arr.length < ticks) arr.push(lastVal);
+        }
+        // Histogram: pad with EMPTY rows (all zeros) after run ends.
+        const hist = data[i].wealthDistribution;
+        const emptyRow = new Array(20).fill(0);
+        while(hist.length < ticks) hist.push([...emptyRow]);
+    }
+
+    // Precompute per-run survival as a one-way door:
+    // A run collapses when population <= 1 OR one agent holds >= 99.9% of wealth.
+    // Once collapsed it stays collapsed — survival is monotonically decreasing.
+    const alive = [];
+    for(let i = 0; i < runs; i++) {
+        let collapsed = false;
+        const runAlive = [];
+        for(let j = 0; j < ticks; j++) {
+            if(!collapsed) {
+                const totalWealth = data[i].averageWealth[j] * data[i].population[j];
+                const consolidated = totalWealth > 0 && data[i].maxWealth[j] === totalWealth;
+                if(data[i].population[j] <= 1 || consolidated) collapsed = true;
+            }
+            runAlive.push(!collapsed);
+        }
+        alive.push(runAlive);
+    }
+
+    // Accumulate — Gini and survival only for alive runs
+    for(let i = 0; i < runs; i++) {
+        for(let j = 0; j < ticks; j++) {
             totalPopulation[j] += data[i].population[j];
-            avgPopulation[j] += data[i].population[j];
-            avgUpperClass[j] += data[i].upperClass[j];
-            avgLowerClass[j] += data[i].lowerClass[j];
+            avgPopulation[j]     += data[i].population[j];
+            avgUpperClass[j]     += data[i].upperClass[j];
+            avgLowerClass[j]     += data[i].lowerClass[j];
             avgNullPopulation[j] += data[i].nullPopulation[j];
-            avgGini[j] += data[i].gini[j];
-            avgAverageWealth[j] += data[i].averageWealth[j];
-            avgMaxWealth[j] += data[i].maxWealth[j];
-            avgMinWealth[j] += data[i].minWealth[j];
+            avgAverageWealth[j]  += data[i].averageWealth[j];
+            avgMaxWealth[j]      += data[i].maxWealth[j];
+            avgMinWealth[j]      += data[i].minWealth[j];
+            if(alive[i][j]) {
+                survivalRate[j]++;
+                avgGini[j] += data[i].gini[j];
+            }
         }
     }
-    for(let j =0; j < ticks; j++) {
-        avgPopulation[j] /= runs;
-        avgUpperClass[j] /= runs;
-        avgLowerClass[j] /= runs;
+
+    // Divide
+    for(let j = 0; j < ticks; j++) {
+        avgPopulation[j]     /= runs;
+        avgUpperClass[j]     /= runs;
+        avgLowerClass[j]     /= runs;
         avgNullPopulation[j] /= runs;
-        avgGini[j] /= runs;
-        avgAverageWealth[j] /= runs;
-        avgMaxWealth[j] /= runs;
-        avgMinWealth[j] /= runs;
+        avgAverageWealth[j]  /= runs;
+        avgMaxWealth[j]      /= runs;
+        avgMinWealth[j]      /= runs;
+        // Survivor-conditional Gini: null when no runs alive
+        avgGini[j] = survivalRate[j] > 0 ? avgGini[j] / survivalRate[j] : null;
+        // Convert count to fraction
+        survivalRate[j] = survivalRate[j] / runs;
     }
 
     let histogramWealth = combineHistograms(data, "wealthDistribution");
@@ -256,7 +365,8 @@ function parseData(data) {
         avgGini,
         avgAverageWealth,
         avgMaxWealth,
-        avgMinWealth,   
+        avgMinWealth,
+        survivalRate,
         histogramWealth,
     };
 
