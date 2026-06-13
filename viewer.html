@@ -351,7 +351,8 @@
         const base = 16;
         let c = v * (base-1) + 1;
         c = 511 - Math.floor(Math.log(c) / Math.log(base) * 512);
-        if (c > 255) { c -= 256; return rgb(c, c, 255); }
+        // dark→blue→cyan instead of dark→blue→white
+        if (c > 255) { c -= 256; return rgb(0, c, 255); }
         return rgb(0, 0, c);
     }
 
