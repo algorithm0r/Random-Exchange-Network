@@ -47,7 +47,7 @@
     <div id="status">Connecting to database…</div>
     <div id="run_label"></div>
 
-    <canvas id="chart" width="1001" height="465"></canvas>
+    <canvas id="chart" width="1001" height="665"></canvas>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.1/socket.io.js"></script>
     <script src="./util.js"></script>
@@ -55,8 +55,8 @@
     <script>
     // ── Constants ─────────────────────────────────────────────────────────────────
     const TICKS  = 1001;
-    const ROW_H  = 100;
-    const GAP    = 15;
+    const ROW_H  = 150;
+    const GAP    = 20;
     const ROWS   = [0, ROW_H+GAP, 2*(ROW_H+GAP), 3*(ROW_H+GAP)];  // y offsets for 4 rows
 
     // ── State ─────────────────────────────────────────────────────────────────────
@@ -293,11 +293,11 @@
     function panel(y, labelText, bg = '#0d1117') {
         ctx.fillStyle = bg;
         ctx.fillRect(0, y, 1001, ROW_H);
-        ctx.strokeStyle = '#21262d';
+        ctx.strokeStyle = bg === '#ffffff' ? '#21262d' : '#cdd9e5';
         ctx.strokeRect(0, y, 1001, ROW_H);
         ctx.fillStyle = bg === '#ffffff' ? '#111' : '#cdd9e5';
-        ctx.font = '9px monospace';
-        ctx.fillText(labelText, 3, y + ROW_H - 3);
+        ctx.font = '13px monospace';
+        ctx.fillText(labelText, 4, y + ROW_H - 6);
     }
 
     function line(yOff, arr, maxVal, color) {
