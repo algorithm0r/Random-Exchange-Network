@@ -94,7 +94,7 @@ class DataManager {
 			collection: PARAMETERS.collection,
 			data: {
 				run: PARAMETERS.runName,
-				parameters: PARAMETERS,
+				parameters: Object.assign({}, PARAMETERS),
 				population: this.populationTimeSeries,
 				nullPopulation: this.nullPopulationTimeSeries,
 				upperClass: this.upperClassTimeSeries,
