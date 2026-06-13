@@ -81,13 +81,29 @@ class Agent {
         }
     }
 
+    applyRounding(value) {
+        switch(PARAMETERS.roundingMode) {
+            case 'floor': return Math.floor(value);
+            case 'continuous': return value;
+            case 'ceiling':
+            default: return Math.ceil(value);
+        }
+    }
+
+    effectiveGiveRate(wealth) {
+        const avg = PARAMETERS.currentAverageWealth || PARAMETERS.initialWealth;
+        return Math.min(1.0, this.giveRate * Math.pow(wealth / avg, PARAMETERS.progressiveAlpha));
+    }
+
     earnFrom(employer) {
         if(!employer) return 0;
         let amount = 0;
         if(PARAMETERS.yardsale) {
-            amount = Math.ceil(this.giveRate * Math.min(this.wealth, employer.wealth));
+            amount = this.applyRounding(this.giveRate * Math.min(this.wealth, employer.wealth));
+        } else if(PARAMETERS.progressiveTF) {
+            amount = this.applyRounding(employer.effectiveGiveRate(employer.wealth) * employer.wealth);
         } else {
-            amount = Math.ceil(employer.giveRate * employer.wealth);
+            amount = this.applyRounding(employer.giveRate * employer.wealth);
         }
         this.wealth += amount;
         employer.wealth -= amount;
@@ -98,9 +114,11 @@ class Agent {
         if(!employee) return;
         let amount = 0;
         if(PARAMETERS.yardsale) {
-            amount = Math.ceil(this.giveRate * Math.min(this.wealth, employee.wealth));
+            amount = this.applyRounding(this.giveRate * Math.min(this.wealth, employee.wealth));
+        } else if(PARAMETERS.progressiveTF) {
+            amount = this.applyRounding(this.effectiveGiveRate(this.wealth) * this.wealth);
         } else {
-            amount = Math.ceil(this.giveRate * this.wealth);
+            amount = this.applyRounding(this.giveRate * this.wealth);
         }
         this.wealth -= amount;
         employee.wealth += amount;

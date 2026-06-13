@@ -10,8 +10,24 @@ class Population {
         this.agents.forEach(agent => agent?.selectInitialNetworks(this.agents));
 
         this.dataManager = new DataManager(this);
-
         this.populationObserver = new PopulationObserver(this, this.dataManager);
+        this.tick = 0;
+    }
+
+    applyUBI() {
+        const living = this.agents.filter(a => a !== null);
+        if (living.length === 0) return;
+        let pool = 0;
+        living.forEach(a => {
+            const contribution = Math.floor(a.wealth * PARAMETERS.ubiRate);
+            a.wealth -= contribution;
+            pool += contribution;
+        });
+        const share = Math.floor(pool / living.length);
+        const remainder = pool - share * living.length;
+        living.forEach(a => a.wealth += share);
+        // distribute remainder to a random agent to conserve total wealth exactly
+        if (remainder > 0) living[randomInt(living.length)].wealth += remainder;
     }
 
     executeRandomTrades (num) {
@@ -35,6 +51,10 @@ class Population {
             }
         }
         this.executeRandomTrades(PARAMETERS.randomTrades);
+        if (PARAMETERS.ubiEnabled && this.tick % PARAMETERS.ubiFrequency === 0) {
+            this.applyUBI();
+        }
+        this.tick++;
         if(this.dataManager.update())
             loadNextRunParameters();
     }

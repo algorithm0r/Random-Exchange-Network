@@ -63,6 +63,7 @@ class DataManager {
 			this.maxWealth = this.agents.reduce((max, agent) => agent ? Math.max(max, agent.wealth) : max, 0);
 			this.minWealth = this.agents.reduce((min, agent) => agent ? Math.min(min, agent.wealth) : min, Infinity);
 			this.averageWealthTimeSeries.push(this.averageWealth);
+			PARAMETERS.currentAverageWealth = this.averageWealth > 0 ? this.averageWealth : PARAMETERS.initialWealth;
 			this.maxWealthTimeSeries.push(this.maxWealth);
 			this.minWealthTimeSeries.push(this.minWealth === Infinity ? 0 : this.minWealth);
 

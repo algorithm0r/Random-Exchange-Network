@@ -23,13 +23,26 @@ const PARAMETERS = {
 
     giveRate: 0.5,
 
+    // Rounding mode: 'ceiling' (batch_002 baseline), 'floor', 'continuous'
+    roundingMode: 'ceiling',
+
+    // Progressive TF: effectiveRate = min(1, giveRate * (wealth/avgWealth)^progressiveAlpha)
+    progressiveTF: false,
+    progressiveAlpha: 1.0,
+    currentAverageWealth: 100,  // maintained by DataManager each reporting period
+
+    // UBI: every ubiFrequency ticks, tax floor(wealth*ubiRate) from each agent, redistribute equally
+    ubiEnabled: false,
+    ubiRate: 0.01,
+    ubiFrequency: 100,
+
     idCounter: 0,
 
     db: "random_exchange",
     collection: "batch_002",
     reportingPeriod: 10,
     epoch: 10000,
-    ip:'https://73.19.38.112:8888',    
+    ip:'https://73.19.38.112:8888',
 };
 
 
