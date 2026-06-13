@@ -285,17 +285,17 @@
         band(ROWS[2], obj.giniP25, obj.giniP75, 1, 'rgba(248,81,73,0.18)');
         line(ROWS[2], obj.avgGini, 1, '#f85149');
 
-        // Row 3: Wealth heatmap
-        panel(ROWS[3], 'Wealth distribution over time  (dark=dense, row 0=bankrupt/null)');
+        // Row 3: Wealth heatmap (white background — color scale is white→blue→dark)
+        panel(ROWS[3], 'Wealth distribution over time  (dark=dense, row 0=bankrupt/null)', '#ffffff');
         heatmap(ROWS[3]);
     }
 
-    function panel(y, labelText) {
-        ctx.fillStyle = '#0d1117';
+    function panel(y, labelText, bg = '#0d1117') {
+        ctx.fillStyle = bg;
         ctx.fillRect(0, y, 1001, ROW_H);
         ctx.strokeStyle = '#21262d';
         ctx.strokeRect(0, y, 1001, ROW_H);
-        ctx.fillStyle = '#484f58';
+        ctx.fillStyle = bg === '#ffffff' ? '#888' : '#484f58';
         ctx.font = '9px monospace';
         ctx.fillText(labelText, 3, y + ROW_H - 3);
     }
@@ -347,12 +347,11 @@
     }
 
     function heatColor(v) {
-        if (v <= 0) return '#0d1117';
+        if (v <= 0) return '#ffffff';
         const base = 16;
         let c = v * (base-1) + 1;
         c = 511 - Math.floor(Math.log(c) / Math.log(base) * 512);
-        // dark→blue→cyan instead of dark→blue→white
-        if (c > 255) { c -= 256; return rgb(0, c, 255); }
+        if (c > 255) { c -= 256; return rgb(c, c, 255); }
         return rgb(0, 0, c);
     }
 
