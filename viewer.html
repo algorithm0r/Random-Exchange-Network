@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>REN Data Viewer</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #0d1117; color: #cdd9e5; font-family: monospace; font-size: 13px; padding: 12px; }
+        h2 { color: #e6edf3; margin-bottom: 10px; font-size: 16px; }
+        .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+        select, input { background: #161b22; color: #cdd9e5; border: 1px solid #30363d; padding: 4px 8px; font-family: monospace; font-size: 13px; }
+        button { background: #21262d; color: #cdd9e5; border: 1px solid #30363d; padding: 4px 10px; font-family: monospace; font-size: 13px; cursor: pointer; }
+        button:hover { background: #30363d; }
+        #status { color: #8b949e; font-size: 12px; margin: 6px 0; min-height: 16px; }
+        #run_label { color: #e6edf3; font-size: 14px; font-weight: bold; margin: 4px 0 6px; min-height: 18px; }
+        canvas { border: 1px solid #21262d; display: block; }
+        .dot { font-size: 16px; }
+        .connected { color: #3fb950; }
+        .disconnected { color: #f85149; }
+        #run_select { width: 300px; }
+        #filter_input { width: 120px; }
+    </style>
+</head>
+<body>
+    <h2>Random Exchange Network — Data Viewer</h2>
+
+    <div class="row">
+        <span id="db_dot" class="dot disconnected">●</span>
+        <label>Collection:</label>
+        <select id="coll_select">
+            <option value="batch_001">batch_001</option>
+            <option value="batch_002" selected>batch_002</option>
+            <option value="batch_003">batch_003</option>
+        </select>
+        <button id="load_btn">Load Runs</button>
+    </div>
+
+    <div class="row">
+        <label>Run:</label>
+        <select id="run_select"></select>
+        <input id="filter_input" type="text" placeholder="filter runs...">
+        <button id="query_btn">Query</button>
+        <button id="next_btn">Next →</button>
+        <button id="dl_btn">Download CSV</button>
+    </div>
+
+    <div id="status">Connecting to database…</div>
+    <div id="run_label"></div>
+
+    <canvas id="chart" width="1001" height="465"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.1/socket.io.js"></script>
+    <script src="./util.js"></script>
+    <script src="./parameters.js"></script>
+    <script>
+    // ── Constants ─────────────────────────────────────────────────────────────────
+    const TICKS  = 1001;
+    const ROW_H  = 100;
+    const GAP    = 15;
+    const ROWS   = [0, ROW_H+GAP, 2*(ROW_H+GAP), 3*(ROW_H+GAP)];  // y offsets for 4 rows
+
+    // ── State ─────────────────────────────────────────────────────────────────────
+    let currentCollection = 'batch_002';
+    let currentQuery      = null;
+    let numRecords = 0, page = 0;
+    const LIMIT = 20;
+    let data = [];
+    let obj  = null;
+    let allRunNames = [];
+
+    // ── Socket ────────────────────────────────────────────────────────────────────
+    const socket = io.connect(PARAMETERS.ip);
+    const canvas = document.getElementById('chart');
+    const ctx    = canvas.getContext('2d');
+
+    socket.on('connect', () => {
+        document.getElementById('db_dot').className = 'dot connected';
+        setStatus('Connected — loading run names…');
+        loadRunNames();
+    });
+    socket.on('disconnect', () => {
+        document.getElementById('db_dot').className = 'dot disconnected';
+        setStatus('Disconnected from database.');
+    });
+
+    // ── Controls ──────────────────────────────────────────────────────────────────
+    document.getElementById('load_btn').addEventListener('click', loadRunNames);
+    document.getElementById('query_btn').addEventListener('click', startQuery);
+    document.getElementById('next_btn').addEventListener('click', () => {
+        const sel = document.getElementById('run_select');
+        sel.selectedIndex = (sel.selectedIndex + 1) % sel.options.length;
+        startQuery();
+    });
+    document.getElementById('dl_btn').addEventListener('click', () => {
+        if (!obj) return;
+        download(`${obj.run}.csv`, serializeMetrics());
+        download(`${obj.run}_wealth_dist.csv`, serializeHist());
+    });
+    document.getElementById('filter_input').addEventListener('input', () => {
+        const f = document.getElementById('filter_input').value.toLowerCase();
+        const sel = document.getElementById('run_select');
+        sel.innerHTML = '';
+        allRunNames.filter(n => n.toLowerCase().includes(f)).forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = opt.textContent = n;
+            sel.appendChild(opt);
+        });
+    });
+
+    // ── Data loading ──────────────────────────────────────────────────────────────
+    function loadRunNames() {
+        currentCollection = document.getElementById('coll_select').value;
+        allRunNames = [];
+        document.getElementById('run_select').innerHTML = '';
+        setStatus(`Loading run names from ${currentCollection}…`);
+        socket.emit('distinct', { db: PARAMETERS.db, collection: currentCollection, key: 'run' });
+    }
+
+    function startQuery() {
+        currentQuery = document.getElementById('run_select').value;
+        if (!currentQuery) return;
+        page = 0; data = [];
+        setStatus(`Querying ${currentQuery}…`);
+        socket.emit('count', { db: PARAMETERS.db, collection: currentCollection, query: { run: currentQuery } });
+    }
+
+    function fetchPage() {
+        socket.emit('find', {
+            db: PARAMETERS.db, collection: currentCollection,
+            query: { run: currentQuery }, limit: LIMIT, page: page++
+        });
+    }
+
+    // ── Socket events ─────────────────────────────────────────────────────────────
+    socket.on('distinct', names => {
+        allRunNames = [...names].sort();
+        const sel = document.getElementById('run_select');
+        sel.innerHTML = '';
+        allRunNames.forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = opt.textContent = n;
+            sel.appendChild(opt);
+        });
+        setStatus(`${names.length} runs in ${currentCollection} — select a run and click Query`);
+    });
+
+    socket.on('count', n => {
+        numRecords = n;
+        setStatus(`Loading 0 / ${n} replications…`);
+        page = 0; data = [];
+        fetchPage();
+    });
+
+    socket.on('find', arr => {
+        if (!arr.length) return;
+        data.push(...arr);
+        setStatus(`Loading ${data.length} / ${numRecords} replications…`);
+        if (data.length < numRecords) fetchPage();
+        else aggregate();
+    });
+
+    // ── Aggregation ───────────────────────────────────────────────────────────────
+    function aggregate() {
+        const runs = data.length;
+
+        // LOCF pad all time series to full epoch length
+        for (let i = 0; i < runs; i++) {
+            for (const f of ['population','upperClass','lowerClass','nullPopulation','averageWealth','maxWealth','minWealth']) {
+                const arr = data[i][f];
+                const last = arr.length > 0 ? arr[arr.length-1] : 0;
+                while (arr.length < TICKS) arr.push(last);
+            }
+            const hist = data[i].wealthDistribution;
+            const empty = new Array(20).fill(0);
+            while (hist.length < TICKS) hist.push([...empty]);
+        }
+
+        // Survival: one-way door — once collapsed, stays collapsed
+        const alive = data.map(d => {
+            let collapsed = false;
+            return Array.from({length: TICKS}, (_, j) => {
+                if (!collapsed) {
+                    const tw = d.averageWealth[j] * d.population[j];
+                    if (d.population[j] <= 1 || (tw > 0 && d.maxWealth[j] === tw)) collapsed = true;
+                }
+                return !collapsed;
+            });
+        });
+
+        // Accumulators
+        const pop = new Array(TICKS).fill(0), upper = new Array(TICKS).fill(0);
+        const lower = new Array(TICKS).fill(0), nullPop = new Array(TICKS).fill(0);
+        const avgW = new Array(TICKS).fill(0), maxW = new Array(TICKS).fill(0);
+        const minW = new Array(TICKS).fill(0);
+        const giniSum = new Array(TICKS).fill(0), survCount = new Array(TICKS).fill(0);
+
+        // Per-tick Gini arrays for percentile bands
+        const giniByTick = Array.from({length: TICKS}, () => []);
+
+        for (let i = 0; i < runs; i++) {
+            for (let j = 0; j < TICKS; j++) {
+                pop[j]    += data[i].population[j];
+                upper[j]  += data[i].upperClass[j];
+                lower[j]  += data[i].lowerClass[j];
+                nullPop[j]+= data[i].nullPopulation[j];
+                avgW[j]   += data[i].averageWealth[j];
+                maxW[j]   += data[i].maxWealth[j];
+                minW[j]   += data[i].minWealth[j];
+                if (alive[i][j] && j < data[i].gini.length) {
+                    survCount[j]++;
+                    giniSum[j] += data[i].gini[j];
+                    giniByTick[j].push(data[i].gini[j]);
+                }
+            }
+        }
+
+        const avgGini     = giniSum.map((v,j) => survCount[j] > 0 ? v/survCount[j] : null);
+        const survivalRate= survCount.map(v => v/runs);
+
+        // Gini percentile bands (25th / 75th)
+        const giniP25 = new Array(TICKS).fill(null);
+        const giniP75 = new Array(TICKS).fill(null);
+        for (let j = 0; j < TICKS; j++) {
+            const vals = giniByTick[j];
+            if (vals.length > 1) {
+                vals.sort((a,b) => a-b);
+                giniP25[j] = vals[Math.floor(vals.length * 0.25)];
+                giniP75[j] = vals[Math.floor(vals.length * 0.75)];
+            }
+        }
+
+        // Wealth heatmap
+        const hist = Array.from({length: TICKS}, () => new Array(20).fill(0));
+        for (let i = 0; i < runs; i++)
+            for (let j = 0; j < TICKS; j++)
+                for (let k = 0; k < 20; k++)
+                    hist[j][k] += data[i].wealthDistribution[j][k];
+
+        const initialAgents = data[0].parameters.initialAgents;
+        if (data[0].parameters.removeDeadAgents) {
+            for (let j = 0; j < TICKS; j++) {
+                hist[j][0] += (initialAgents * runs) - pop[j];
+            }
+        }
+        const constTotal = new Array(TICKS).fill(initialAgents * runs);
+
+        obj = {
+            run: data[0].run, runs,
+            avgPopulation:    pop.map(v=>v/runs),
+            avgUpperClass:    upper.map(v=>v/runs),
+            avgLowerClass:    lower.map(v=>v/runs),
+            avgNullPopulation:nullPop.map(v=>v/runs),
+            avgAverageWealth: avgW.map(v=>v/runs),
+            avgMaxWealth:     maxW.map(v=>v/runs),
+            avgMinWealth:     minW.map(v=>v/runs),
+            avgGini, giniP25, giniP75, survivalRate,
+            histogramWealth: hist, constantTotal: constTotal,
+        };
+
+        draw();
+        document.getElementById('run_label').textContent = `${currentQuery}  [${runs} replications]`;
+        setStatus(`Done — ${runs} reps loaded`);
+    }
+
+    // ── Drawing ───────────────────────────────────────────────────────────────────
+    function draw() {
+        ctx.clearRect(0, 0, 1001, 465);
+
+        // Row 0: Population + Survival
+        panel(ROWS[0], 'Population  black=total  lime=upper  cyan=lower  orange=survival%');
+        line(ROWS[0], obj.avgPopulation, 100, '#cdd9e5');
+        line(ROWS[0], obj.avgUpperClass, 100, '#3fb950');
+        line(ROWS[0], obj.avgLowerClass, 100, '#58a6ff');
+        line(ROWS[0], obj.survivalRate.map(v=>v*100), 100, '#f0883e');
+
+        // Row 1: Wealth
+        const wMax = Math.max(...obj.avgMaxWealth.filter(v=>v!=null));
+        panel(ROWS[1], `Wealth  white=avg  lime=max  cyan=min  [peak ${Math.round(wMax).toLocaleString()}]`);
+        line(ROWS[1], obj.avgAverageWealth, wMax, '#e6edf3');
+        line(ROWS[1], obj.avgMaxWealth,     wMax, '#3fb950');
+        line(ROWS[1], obj.avgMinWealth,     wMax, '#58a6ff');
+
+        // Row 2: Gini with IQR band
+        panel(ROWS[2], 'Gini  red=mean (survivor-conditional)  band=IQR across replications');
+        band(ROWS[2], obj.giniP25, obj.giniP75, 1, 'rgba(248,81,73,0.18)');
+        line(ROWS[2], obj.avgGini, 1, '#f85149');
+
+        // Row 3: Wealth heatmap
+        panel(ROWS[3], 'Wealth distribution over time  (dark=dense, row 0=bankrupt/null)');
+        heatmap(ROWS[3]);
+    }
+
+    function panel(y, labelText) {
+        ctx.fillStyle = '#0d1117';
+        ctx.fillRect(0, y, 1001, ROW_H);
+        ctx.strokeStyle = '#21262d';
+        ctx.strokeRect(0, y, 1001, ROW_H);
+        ctx.fillStyle = '#484f58';
+        ctx.font = '9px monospace';
+        ctx.fillText(labelText, 3, y + ROW_H - 3);
+    }
+
+    function line(yOff, arr, maxVal, color) {
+        if (!arr || maxVal <= 0) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < TICKS; i++) {
+            const v = arr[i];
+            if (v === null || v === undefined) continue;
+            const y = yOff + ROW_H - Math.min(ROW_H, v / maxVal * ROW_H);
+            if (!started) { ctx.moveTo(i, y); started = true; }
+            else ctx.lineTo(i, y);
+        }
+        ctx.stroke();
+    }
+
+    function band(yOff, lo, hi, maxVal, color) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < TICKS; i++) {
+            if (hi[i] === null) continue;
+            const y = yOff + ROW_H - hi[i] / maxVal * ROW_H;
+            if (!started) { ctx.moveTo(i, y); started = true; }
+            else ctx.lineTo(i, y);
+        }
+        for (let i = TICKS-1; i >= 0; i--) {
+            if (lo[i] === null) continue;
+            ctx.lineTo(i, yOff + ROW_H - lo[i] / maxVal * ROW_H);
+        }
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function heatmap(yOff) {
+        const rowH = ROW_H / 20;
+        for (let i = 0; i < TICKS; i++) {
+            const total = obj.constantTotal[i];
+            for (let j = 0; j < 20; j++) {
+                const frac = total > 0 ? obj.histogramWealth[i][j] / total : 0;
+                ctx.fillStyle = heatColor(frac);
+                ctx.fillRect(i, yOff + (19-j)*rowH, 1, rowH);
+            }
+        }
+    }
+
+    function heatColor(v) {
+        if (v <= 0) return '#0d1117';
+        const base = 16;
+        let c = v * (base-1) + 1;
+        c = 511 - Math.floor(Math.log(c) / Math.log(base) * 512);
+        if (c > 255) { c -= 256; return rgb(c, c, 255); }
+        return rgb(0, 0, c);
+    }
+
+    // ── Serialization ─────────────────────────────────────────────────────────────
+    function serializeMetrics() {
+        const series = [obj.avgPopulation, obj.avgUpperClass, obj.avgLowerClass,
+                        obj.avgNullPopulation, obj.avgGini, obj.avgAverageWealth,
+                        obj.avgMaxWealth, obj.avgMinWealth, obj.survivalRate,
+                        obj.giniP25, obj.giniP75];
+        return series.map(s => s.map(v => v ?? '').join(',')).join('\n');
+    }
+    function serializeHist() {
+        return obj.histogramWealth.map(row => row.join(',')).join('\n');
+    }
+
+    function setStatus(msg) { document.getElementById('status').textContent = msg; }
+    </script>
+</body>
+</html>
